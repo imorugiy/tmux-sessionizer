@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+
+SEARCH_PATHS=(~/.config ~/projects)
+TS_SESSION_COMMANDS=(nvim)
+
+session_idx=""
+session_cmd=""
+
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+    -h | --help)
+        echo "Usage: tmux-sessionizer [OPTIONS] [SEARCH_PATH]"
+        echo "Options:"
+        echo "  -h, --help           Display this help message"
+        echo "  -s, --session <name> session command index"
+        exit 0
+        ;;
+    -s | --session)
+        session_idx="$2"
+        if [[ -z $session_idx ]]; then
+            echo "Session index cannot be empty"
+            exit 1
+        fi
+
+        if [[ -z $TS_SESSION_COMMANDS ]]; then
+            echo "TS_SESSION_COMMANDS is not set.  Must have a command set to run when switching to a session"
+            exit 1
+        fi
+
+        if [[ -z "$session_idx" || "$session_idx" -lt 0 || "$session_idx" -ge "${#TS_SESSION_COMMANDS[@]}" ]]; then
+            echo "Error: Invalid index. Please provide an index between 0 and $((${#TS_SESSION_COMMANDS[@]} - 1))."
+            exit 1
+        fi
+
+        session_cmd="${TS_SESSION_COMMANDS[$session_idx]}"
+
+        shift
+        ;;
+    *)
+        user_selected="$1"
+        ;;
+    esac
+    shift
+done
+
+is_tmux_running() {
+    tmux_running=$(pgrep tmux)
+
+    if [[ -z $TMUX ]] && [[ -z $tmux_running ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
+has_session() {
+    tmux list-sessions | grep -q "^$1:"
+}
+
+handle_session_cmd() {
+    if ! is_tmux_running; then
+        echo "Error: tmux is not running.  Please start tmux first before using session commands."
+        exit 1
+    fi
+
+    current_session=$(tmux display-message -p '#S')
+
+    handle_window_session_cmd "$current_session"
+    exit 0
+}
+
+handle_window_session_cmd() {
+    local current_session="$1"
+    start_index=$((69 + $session_idx))
+    target="$current_session:$start_index"
+
+    if tmux has-session -t="$target" 2> /dev/null; then
+        switch_to "$target"
+    else
+        tmux neww -dt $target "$session_cmd"
+        # TODO: hydration
+        tmux select-window -t $target
+    fi
+}
+
+switch_to() {
+    if [[ -z $TMUX ]]; then
+        log "attaching to session $1"
+        tmux attach-session -t "$1"
+    else
+        log "switching to session $1"
+        tmux switch-client -t "$1"
+    fi
+}
+
+if [[ ! -z $session_cmd ]]; then
+    handle_session_cmd
+else
+    selected=$(find "${SEARCH_PATHS[@]}" -mindepth 1 -maxdepth 1 -type d | fzf)
+fi
+
+if [[ -z $selected ]]; then
+    exit 0
+fi
+
+selected_name=$(basename "$selected" | tr . _)
+
+if ! is_tmux_running; then
+    tmux new-session -ds "$selected_name" -c "$selected"
+    # TODO
+fi
+
+if ! has_session "$selected_name"; then
+    tmux new-session -ds "$selected_name" -c "$selected"
+    # TODO
+fi
+
+switch_to "$selected_name"
