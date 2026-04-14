@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 SEARCH_PATHS=(~/.config ~/projects)
-TS_SESSION_COMMANDS=(nvim)
+TS_SESSION_COMMANDS=(nvim opencode)
 
 session_idx=""
 session_cmd=""
